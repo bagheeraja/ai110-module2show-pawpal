@@ -1,0 +1,92 @@
+classDiagram
+    class Owner {
+        +str name
+        +str email
+        +list~Pet~ pets
+        +add_pet(pet) None
+        +get_pet(pet_id) Pet
+    }
+
+    class Pet {
+        +str id
+        +str name
+        +str species
+        +date birthdate
+        +dict preferences
+        +list~Task~ tasks
+        +add_task(task) None
+        +remove_task(task_id) None
+        +get_tasks_for_date(date) list~TaskOccurrence~
+    }
+
+    class Task {
+        +str id
+        +str title
+        +TaskType task_type
+        +int duration_minutes
+        +Priority priority
+        +datetime scheduled_time
+        +Recurrence recurrence
+        +date recurrence_end_date
+        +set~date~ completed_dates
+        +mark_complete(occurrence_date) date
+        +is_complete_on(occurrence_date) bool
+        +occurs_on(target_date) bool
+        +next_occurrence_date(after) date
+        +reschedule(new_scheduled_time) None
+        +conflicts_with(other, on) bool
+    }
+
+    class TaskOccurrence {
+        +Task task
+        +Pet pet
+        +date occurrence_date
+        +datetime start_time
+        +datetime end_time
+        +completed bool
+        +mark_complete() date
+    }
+
+    class TaskType {
+        <<enumeration>>
+        FEEDING
+        WALK
+        MEDICATION
+        APPOINTMENT
+    }
+
+    class Priority {
+        <<enumeration>>
+        LOW
+        MEDIUM
+        HIGH
+    }
+
+    class Recurrence {
+        <<enumeration>>
+        NONE
+        DAILY
+        WEEKLY
+    }
+
+    class Scheduler {
+        +build_daily_plan(pet, date, time_budget_minutes) list~TaskOccurrence~
+        +build_daily_plan_for_owner(owner, date, time_budget_minutes) list~TaskOccurrence~
+        +sort_by_time(occurrences) list~TaskOccurrence~
+        +filter_occurrences(occurrences, pet_name, completed) list~TaskOccurrence~
+        +detect_conflicts(occurrences) list~tuple~
+        +get_conflict_warnings(occurrences) list~str~
+        +expand_recurring(task, pet, date) TaskOccurrence
+        +get_missed_tasks(pet, as_of) list~TaskOccurrence~
+    }
+
+    Owner "1" --> "many" Pet : owns
+    Pet "1" --> "many" Task : has
+    Task --> TaskType
+    Task --> Priority
+    Task --> Recurrence
+    TaskOccurrence --> Task : instance of
+    TaskOccurrence --> Pet : instance of
+    Scheduler ..> Pet : reads tasks from
+    Scheduler ..> Owner : aggregates pets from
+    Scheduler ..> TaskOccurrence : produces/orders/checks

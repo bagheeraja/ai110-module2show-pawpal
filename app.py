@@ -128,6 +128,12 @@ st.divider()
 st.subheader("Build Schedule")
 st.caption("Builds today's plan across all of this owner's pets.")
 
+sort_mode = st.radio(
+    "Sort by",
+    ["Priority (default plan order)", "Time of day"],
+    horizontal=True,
+)
+
 if st.button("Generate schedule"):
     scheduler = Scheduler()
     plan = scheduler.build_daily_plan_for_owner(owner, date.today())
@@ -135,15 +141,31 @@ if st.button("Generate schedule"):
     if not plan:
         st.info("Nothing scheduled for today.")
     else:
-        for occurrence in plan:
-            start = occurrence.start_time.strftime("%I:%M %p")
-            st.write(
-                f"**{start}** — {occurrence.pet.name}: {occurrence.task.title} "
-                f"[{occurrence.task.priority.name}]"
-            )
-
+        # Surface conflicts first, above the schedule -- an owner should see
+        # "these two things clash" before they see the full list of tasks,
+        # so it doesn't get missed by scrolling past it.
         conflicts = scheduler.detect_conflicts(plan)
-        if conflicts:
-            st.warning("Conflicts detected:")
-            for a, b in conflicts:
-                st.write(f"- {a.pet.name}'s {a.task.title} overlaps {b.pet.name}'s {b.task.title}")
+        conflicting_ids = {occurrence.task.id for pair in conflicts for occurrence in pair}
+
+        warnings = scheduler.get_conflict_warnings(plan)
+        if warnings:
+            st.error(f"⚠️ {len(warnings)} scheduling conflict(s) found today:")
+            for warning in warnings:
+                st.warning(warning)
+        else:
+            st.success("✅ No conflicts -- today's plan is clash-free.")
+
+        ordered = plan if sort_mode.startswith("Priority") else scheduler.sort_by_time(plan)
+
+        st.table(
+            [
+                {
+                    "time": occurrence.start_time.strftime("%I:%M %p"),
+                    "pet": occurrence.pet.name,
+                    "task": occurrence.task.title,
+                    "priority": occurrence.task.priority.name,
+                    "conflict": "⚠️" if occurrence.task.id in conflicting_ids else "",
+                }
+                for occurrence in ordered
+            ]
+        )
