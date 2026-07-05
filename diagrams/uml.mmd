@@ -4,29 +4,45 @@ classDiagram
         +str email
         +list~Pet~ pets
         +add_pet(pet) None
-        +get_pet(name) Pet
+        +get_pet(pet_id) Pet
     }
 
     class Pet {
+        +str id
         +str name
         +str species
         +date birthdate
         +dict preferences
         +list~Task~ tasks
         +add_task(task) None
-        +get_tasks_for_date(date) list~Task~
+        +remove_task(task_id) None
+        +get_tasks_for_date(date) list~TaskOccurrence~
     }
 
     class Task {
+        +str id
         +str title
         +TaskType task_type
         +int duration_minutes
         +Priority priority
         +datetime scheduled_time
         +Recurrence recurrence
-        +bool completed
+        +date recurrence_end_date
+        +set~date~ completed_dates
+        +mark_complete(occurrence_date) None
+        +is_complete_on(occurrence_date) bool
+        +occurs_on(target_date) bool
+        +reschedule(new_scheduled_time) None
+        +conflicts_with(other, on) bool
+    }
+
+    class TaskOccurrence {
+        +Task task
+        +date occurrence_date
+        +datetime start_time
+        +datetime end_time
+        +completed bool
         +mark_complete() None
-        +conflicts_with(other_task) bool
     }
 
     class TaskType {
@@ -52,9 +68,10 @@ classDiagram
     }
 
     class Scheduler {
-        +build_daily_plan(pet, date) list~Task~
-        +detect_conflicts(tasks) list~Task~
-        +expand_recurring(task, date) list~Task~
+        +build_daily_plan(pet, date, time_budget_minutes) list~TaskOccurrence~
+        +detect_conflicts(occurrences) list~tuple~
+        +expand_recurring(task, date) TaskOccurrence
+        +get_missed_tasks(pet, as_of) list~TaskOccurrence~
     }
 
     Owner "1" --> "many" Pet : owns
@@ -62,5 +79,6 @@ classDiagram
     Task --> TaskType
     Task --> Priority
     Task --> Recurrence
+    TaskOccurrence --> Task : instance of
     Scheduler ..> Pet : reads tasks from
-    Scheduler ..> Task : orders/checks
+    Scheduler ..> TaskOccurrence : produces/orders/checks

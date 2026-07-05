@@ -118,8 +118,22 @@ classDiagram
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+The design changed twice while reviewing the skeleton in `pawpal_system.py`, before any logic was implemented:
+
+1. **`Task.completed: bool` → `Task.completed_dates: set[date]`, plus a new `TaskOccurrence` class.** The original design gave a `Task` a single `completed` flag. That breaks for recurring tasks: a `DAILY` walk is one `Task` object, so marking it complete would either mark the entire series complete forever, or (if occurrences were copied per day) silently lose the state entirely once the copy went out of scope. The fix tracks completion per calendar date on the template, and introduces `TaskOccurrence` — a lightweight, ephemeral object (never stored) representing one dated instance of a `Task` for display in a daily plan, whose `completed`/`mark_complete()` delegate back to the template so there's one source of truth. `Scheduler` methods were updated to return/accept `TaskOccurrence` instead of `Task` (e.g. `build_daily_plan` returns `list[TaskOccurrence]`, `detect_conflicts` returns conflicting *pairs* rather than a flat list of tasks, since a single task can't be "a conflict" on its own).
+2. **Added `id` fields to `Task` and `Pet`.** `Owner.get_pet` originally looked pets up by `name`, but two pets can plausibly share a name (e.g. two "Max"es in a household), which would make lookup ambiguous. Both `Pet` and `Task` now carry a `uuid`-based `id`, and `Owner.get_pet` takes `pet_id` instead of `name`.
+
+A further edge-case pass added:
+
+3. **`Task.recurrence_end_date` and `Pet.remove_task`.** A recurring task originally had no way to stop recurring (e.g., a 10-day course of medication) or be deleted once created; both are now explicit.
+4. **Tie-break rule for equal-priority tasks.** `Scheduler.build_daily_plan` orders by `Priority` first, then alphabetically by title as the initial tie-break within a tier.
+5. **Boundary conflicts are not conflicts.** `Task.conflicts_with` treats two occurrences that merely touch (one ends exactly when the other begins) as non-overlapping.
+6. **Zero-duration tasks are rejected; midnight-rollover tasks span both dates.** `Task.__post_init__` raises if `duration_minutes <= 0`. A task whose `scheduled_time + duration` crosses midnight is considered to occur on both its start date and its rollover end date, so it appears on both days' plans.
+7. **`build_daily_plan` excludes already-completed occurrences.** A finished walk shouldn't clutter today's plan.
+8. **Empty state returns `[]`, never raises.** A pet with no tasks (or no occurrences for a given date) is a normal, valid result.
+9. **Missed/overdue tasks get a recovery path.** Added `Scheduler.get_missed_tasks(pet, as_of)` to surface past, incomplete occurrences, and `Task.reschedule(new_scheduled_time)` so an owner can move a missed one-off task forward instead of it silently vanishing once its date passes.
+
+All of these were caught by treating the class skeleton as a design review step — asking "what happens when X is recurring / duplicated / missed / empty" before writing any method bodies — rather than discovering them mid-implementation.
 
 ---
 
