@@ -52,6 +52,12 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
+## 📐 System Design (UML)
+
+Class diagram reflecting the final implementation in `pawpal_system.py` (source: [`diagrams/uml_final.mmd`](diagrams/uml_final.mmd); earlier draft: [`diagrams/uml.mmd`](diagrams/uml.mmd)):
+
+![PawPal+ UML diagram](diagrams/Pawpal_UML_02.png)
+
 ## 🖥️ Sample Output
 
 Terminal output from running `python main.py` (see `main.py` for the owner/pet/task setup):
