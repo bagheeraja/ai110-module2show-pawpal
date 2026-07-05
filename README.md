@@ -59,17 +59,46 @@ Today's Schedule -- 2026-07-05
 
 ```bash
 # Run the full test suite:
-pytest
+python -m pytest
 
 # Run with coverage:
 pytest --cov
 ```
 
+The suite in `tests/test_pawpal.py` covers:
+
+- **Task completion**: marking an occurrence complete updates its per-date status without affecting other dates.
+- **Recurrence logic**: `next_occurrence_date` for DAILY and WEEKLY tasks (including from a non-anchor weekday), `None` for one-off tasks and once `recurrence_end_date` is exceeded, and that marking a daily task complete advances to the next day's date without retroactively completing that next occurrence.
+- **Sorting**: `Scheduler.sort_by_time()` returns occurrences in chronological order regardless of the order tasks were added.
+- **Conflict detection**: `Scheduler.detect_conflicts()` flags two tasks scheduled at the exact same time, and correctly ignores back-to-back tasks that touch but don't overlap.
+- **Pet/task management**: adding a task increases a pet's task count.
+
 Sample test output:
 
 ```
-# Paste your pytest output here
+============================= test session starts ==============================
+platform darwin -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/bagheera/repos/codepath/Codepath_AI_110/Week05/ai110-module2show-pawpal-starter
+plugins: anyio-4.14.1
+collecting ... collected 10 items
+
+tests/test_pawpal.py::test_mark_complete_changes_task_status PASSED      [ 10%]
+tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [ 20%]
+tests/test_pawpal.py::test_next_occurrence_date_daily_is_timedelta_of_one_day PASSED [ 30%]
+tests/test_pawpal.py::test_next_occurrence_date_weekly_matches_anchor_weekday PASSED [ 40%]
+tests/test_pawpal.py::test_next_occurrence_date_none_when_recurrence_none_or_end_date_exceeded PASSED [ 50%]
+tests/test_pawpal.py::test_mark_complete_returns_next_occurrence_date PASSED [ 60%]
+tests/test_pawpal.py::test_sort_by_time_returns_chronological_order PASSED [ 70%]
+tests/test_pawpal.py::test_daily_recurrence_marks_today_complete_without_completing_tomorrow PASSED [ 80%]
+tests/test_pawpal.py::test_detect_conflicts_flags_overlapping_duplicate_times PASSED [ 90%]
+tests/test_pawpal.py::test_detect_conflicts_ignores_back_to_back_tasks PASSED [100%]
+
+============================== 10 passed in 0.01s ==============================
 ```
+
+**Confidence Level: ⭐⭐⭐⭐☆ (4/5)**
+
+All 10 tests pass, covering the core scheduling behaviors (recurrence, sorting, conflict detection, completion tracking) and the edge cases that are easiest to get wrong (touching-vs-overlapping windows, per-date completion, non-anchor weekday lookups). One star held back because the suite doesn't yet exercise `build_daily_plan`'s `time_budget_minutes` cutoff, multi-pet conflict detection via `build_daily_plan_for_owner`, or `get_missed_tasks` — these are called out as follow-up cases in the test plan but not yet automated.
 
 ## 📐 Smarter Scheduling
 

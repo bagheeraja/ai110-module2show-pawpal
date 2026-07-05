@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 
-from pawpal_system import Pet, Priority, Recurrence, Task, TaskType
+from pawpal_system import Pet, Priority, Recurrence, Scheduler, Task, TaskType
 
 
 def test_mark_complete_changes_task_status():
@@ -101,3 +101,118 @@ def test_mark_complete_returns_next_occurrence_date():
 
     assert task.is_complete_on(date(2026, 7, 5))
     assert next_date == date(2026, 7, 6)
+
+
+def test_sort_by_time_returns_chronological_order():
+    pet = Pet(name="Mochi", species="dog", birthdate=date(2020, 3, 14))
+    scheduler = Scheduler()
+
+    evening_walk = Task(
+        title="Evening walk",
+        task_type=TaskType.WALK,
+        duration_minutes=20,
+        priority=Priority.LOW,
+        scheduled_time=datetime(2026, 7, 5, 18, 0),
+    )
+    breakfast = Task(
+        title="Breakfast",
+        task_type=TaskType.FEEDING,
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        scheduled_time=datetime(2026, 7, 5, 7, 30),
+    )
+    midday_meds = Task(
+        title="Midday medication",
+        task_type=TaskType.MEDICATION,
+        duration_minutes=5,
+        priority=Priority.MEDIUM,
+        scheduled_time=datetime(2026, 7, 5, 12, 0),
+    )
+    pet.add_task(evening_walk)
+    pet.add_task(breakfast)
+    pet.add_task(midday_meds)
+
+    occurrences = pet.get_tasks_for_date(date(2026, 7, 5))
+    sorted_occurrences = scheduler.sort_by_time(occurrences)
+
+    assert [occurrence.task.title for occurrence in sorted_occurrences] == [
+        "Breakfast",
+        "Midday medication",
+        "Evening walk",
+    ]
+
+
+def test_daily_recurrence_marks_today_complete_without_completing_tomorrow():
+    task = Task(
+        title="Breakfast",
+        task_type=TaskType.FEEDING,
+        duration_minutes=10,
+        priority=Priority.HIGH,
+        scheduled_time=datetime(2026, 7, 5, 7, 30),
+        recurrence=Recurrence.DAILY,
+    )
+
+    next_date = task.mark_complete(date(2026, 7, 5))
+
+    # Marking today's occurrence complete produces tomorrow's occurrence date,
+    # but doesn't retroactively mark tomorrow as complete too.
+    assert next_date == date(2026, 7, 6)
+    assert task.is_complete_on(date(2026, 7, 5))
+    assert not task.is_complete_on(date(2026, 7, 6))
+    assert task.occurs_on(date(2026, 7, 6))
+
+
+def test_detect_conflicts_flags_overlapping_duplicate_times():
+    pet = Pet(name="Mochi", species="dog", birthdate=date(2020, 3, 14))
+    scheduler = Scheduler()
+
+    walk = Task(
+        title="Walk",
+        task_type=TaskType.WALK,
+        duration_minutes=30,
+        priority=Priority.MEDIUM,
+        scheduled_time=datetime(2026, 7, 5, 8, 0),
+    )
+    vet_visit = Task(
+        title="Vet visit",
+        task_type=TaskType.APPOINTMENT,
+        duration_minutes=30,
+        priority=Priority.HIGH,
+        scheduled_time=datetime(2026, 7, 5, 8, 0),
+    )
+    pet.add_task(walk)
+    pet.add_task(vet_visit)
+
+    occurrences = pet.get_tasks_for_date(date(2026, 7, 5))
+    conflicts = scheduler.detect_conflicts(occurrences)
+
+    assert len(conflicts) == 1
+    conflict_titles = {occurrence.task.title for occurrence in conflicts[0]}
+    assert conflict_titles == {"Walk", "Vet visit"}
+
+
+def test_detect_conflicts_ignores_back_to_back_tasks():
+    pet = Pet(name="Mochi", species="dog", birthdate=date(2020, 3, 14))
+    scheduler = Scheduler()
+
+    morning_walk = Task(
+        title="Morning walk",
+        task_type=TaskType.WALK,
+        duration_minutes=30,
+        priority=Priority.MEDIUM,
+        scheduled_time=datetime(2026, 7, 5, 8, 0),
+    )
+    breakfast = Task(
+        title="Breakfast",
+        task_type=TaskType.FEEDING,
+        duration_minutes=15,
+        priority=Priority.HIGH,
+        scheduled_time=datetime(2026, 7, 5, 8, 30),
+    )
+    pet.add_task(morning_walk)
+    pet.add_task(breakfast)
+
+    occurrences = pet.get_tasks_for_date(date(2026, 7, 5))
+    conflicts = scheduler.detect_conflicts(occurrences)
+
+    assert conflicts == []
