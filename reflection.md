@@ -162,6 +162,8 @@ The time-budget cutoff is a **greedy truncation, not a knapsack optimization**. 
 
 This tradeoff is reasonable here because the ordering is priority-first: by the time the budget is exhausted, everything already included is higher-priority than everything left out, and the alternative (skip-and-continue) could let a trivial low-priority task jump ahead of a skipped medium-priority one just because it happened to be smaller. For a personal pet-care planner, "the owner's most important tasks fit, in order, and the rest come with an explicit, honest cutoff" is more predictable and easier to reason about than a bin-packing result that quietly swaps in whatever combination maximizes task count.
 
+`detect_conflicts` is a **plain O(n²) pairwise comparison (`itertools.combinations`), not a sweep-line algorithm**. An interval-scheduling sweep (sort by `start_time`, maintain a pruned "active" window) would cut this to O(n log n), but I asked an AI assistant for that alternative and decided not to adopt it: a pet owner's daily task list is realistically tiny (a handful of tasks across a couple of pets), so the asymptotic win never materializes, while the sweep's active-interval bookkeeping (especially preserving the existing same-task-id exclusion and the strict-overlap rule) is real complexity to introduce and re-verify for no practical benefit. `itertools.combinations` reads as "compare every pair," which is a closer match to how a person actually reasons about "did anything overlap" than a stateful sweep would be — here, more Pythonic/performant and more readable pointed in different directions, and readability won given the scale.
+
 ---
 
 ## 3. AI Collaboration

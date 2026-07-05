@@ -67,9 +67,16 @@ class Task:
         if self.duration_minutes <= 0:
             raise ValueError("duration_minutes must be greater than 0")
 
-    def mark_complete(self, occurrence_date: date | None = None) -> None:
-        """Mark the occurrence on ``occurrence_date`` complete (defaults to this task's own date)."""
-        self.completed_dates.add(occurrence_date or self.scheduled_time.date())
+    def mark_complete(self, occurrence_date: date | None = None) -> date | None:
+        """Mark the occurrence on ``occurrence_date`` complete (defaults to this task's own date).
+
+        Returns the next occurrence's date for a DAILY/WEEKLY task, or None
+        for a one-off task or once recurrence_end_date is exhausted -- see
+        next_occurrence_date.
+        """
+        occurrence_date = occurrence_date or self.scheduled_time.date()
+        self.completed_dates.add(occurrence_date)
+        return self.next_occurrence_date(occurrence_date)
 
     def is_complete_on(self, occurrence_date: date | None = None) -> bool:
         """Whether the occurrence on ``occurrence_date`` has been completed."""
@@ -119,6 +126,26 @@ class Task:
         or before ``recurrence_end_date`` when one is set.
         """
         return self.window_on(target_date) is not None
+
+    def next_occurrence_date(self, after: date) -> date | None:
+        """The next date (strictly after ``after``) this task occurs on, or None.
+
+        NONE recurrence has no "next" occurrence. DAILY/WEEKLY compute a
+        candidate directly from the anchor's day-step/weekday, then confirm
+        it with occurs_on so the recurrence_end_date cutoff is handled the
+        same way everywhere rather than re-checked here.
+        """
+        if self.recurrence == Recurrence.NONE:
+            return None
+
+        if self.recurrence == Recurrence.DAILY:
+            candidate = after + timedelta(days=1)
+        else:  # WEEKLY -- don't assume `after` falls on the anchor's weekday.
+            anchor_date = self.scheduled_time.date()
+            days_ahead = (anchor_date.weekday() - after.weekday()) % 7
+            candidate = after + timedelta(days=days_ahead or 7)
+
+        return candidate if self.occurs_on(candidate) else None
 
     def reschedule(self, new_scheduled_time: datetime) -> None:
         """Move a missed/overdue one-off task to a new time.
@@ -172,9 +199,13 @@ class TaskOccurrence:
         """Whether this specific occurrence has been completed."""
         return self.task.is_complete_on(self.occurrence_date)
 
-    def mark_complete(self) -> None:
-        """Mark this specific occurrence complete on the underlying task."""
-        self.task.mark_complete(self.occurrence_date)
+    def mark_complete(self) -> date | None:
+        """Mark this specific occurrence complete on the underlying task.
+
+        Returns the next occurrence's date for a recurring task, or None --
+        see Task.mark_complete.
+        """
+        return self.task.mark_complete(self.occurrence_date)
 
 
 @dataclass
@@ -326,6 +357,35 @@ class Scheduler:
         ]
         return self._finalize_plan(merged, time_budget_minutes)
 
+    def sort_by_time(self, occurrences: list[TaskOccurrence]) -> list[TaskOccurrence]:
+        """Occurrences in chronological order by start_time.
+
+        Unlike the priority-first ordering ``_finalize_plan`` uses for a
+        daily plan, this is a plain time-of-day view -- useful when the
+        owner wants to see "what happens when" rather than "what matters
+        most".
+        """
+        return sorted(occurrences, key=lambda occurrence: occurrence.start_time)
+
+    def filter_occurrences(
+        self,
+        occurrences: list[TaskOccurrence],
+        *,
+        pet_name: str | None = None,
+        completed: bool | None = None,
+    ) -> list[TaskOccurrence]:
+        """Occurrences narrowed by pet name and/or completion status.
+
+        Both filters are optional and combine with AND when given together.
+        Leaving both as None returns ``occurrences`` unchanged.
+        """
+        filtered = occurrences
+        if pet_name is not None:
+            filtered = [occurrence for occurrence in filtered if occurrence.pet.name == pet_name]
+        if completed is not None:
+            filtered = [occurrence for occurrence in filtered if occurrence.completed == completed]
+        return filtered
+
     def detect_conflicts(
         self, occurrences: list[TaskOccurrence]
     ) -> list[tuple[TaskOccurrence, TaskOccurrence]]:
@@ -344,6 +404,24 @@ class Scheduler:
             if a.start_time < b.end_time and b.start_time < a.end_time:
                 conflicts.append((a, b))
         return conflicts
+
+    def get_conflict_warnings(self, occurrences: list[TaskOccurrence]) -> list[str]:
+        """Human-readable warnings for every conflict in ``occurrences``.
+
+        A thin wrapper over detect_conflicts for callers (CLI, UI) that just
+        want something safe to display -- it never raises, and returns []
+        when nothing overlaps, so a caller can print/log the list as-is
+        without any conflict-specific branching of its own.
+        """
+        warnings = []
+        for a, b in self.detect_conflicts(occurrences):
+            a_time = a.start_time.strftime("%I:%M %p")
+            b_time = b.start_time.strftime("%I:%M %p")
+            warnings.append(
+                f"Warning: {a.pet.name}'s '{a.task.title}' ({a_time}) overlaps "
+                f"{b.pet.name}'s '{b.task.title}' ({b_time})"
+            )
+        return warnings
 
     def expand_recurring(self, task: Task, pet: Pet, target_date: date) -> TaskOccurrence | None:
         """The occurrence of task on target_date, or None if it doesn't occur that day.
