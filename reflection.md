@@ -133,7 +133,11 @@ A further edge-case pass added:
 8. **Empty state returns `[]`, never raises.** A pet with no tasks (or no occurrences for a given date) is a normal, valid result.
 9. **Missed/overdue tasks get a recovery path.** Added `Scheduler.get_missed_tasks(pet, as_of)` to surface past, incomplete occurrences, and `Task.reschedule(new_scheduled_time)` so an owner can move a missed one-off task forward instead of it silently vanishing once its date passes.
 
-All of these were caught by treating the class skeleton as a design review step — asking "what happens when X is recurring / duplicated / missed / empty" before writing any method bodies — rather than discovering them mid-implementation.
+A final change addressed a gap around owners with multiple pets:
+
+10. **`TaskOccurrence` gained a `pet` field, and `Scheduler` gained `build_daily_plan_for_owner`.** Every existing `Scheduler` method operated on a single `Pet`, with no way to build one combined plan across all of an owner's pets. Rather than having a caller loop over `owner.pets`, call `build_daily_plan` per pet, and concatenate the results, `build_daily_plan_for_owner` merges every pet's occurrences *before* applying the not-completed filter, ordering, and time budget. This matters because those constraints are really about the *owner's* time, not any one pet's — concatenating already-built per-pet plans would apply the time budget separately per pet instead of across the owner's whole day, and would miss a real conflict like the owner being double-booked to walk two different dogs at the same time. `detect_conflicts` already took a flat `list[TaskOccurrence]` rather than `(pet, tasks)`, so it needed no change to support cross-pet conflicts — it just needed occurrences that carry `pet`, which is why that field was added and `expand_recurring` now takes `pet` as well (to stamp it on).
+
+All of these were caught by treating the class skeleton as a design review step — asking "what happens when X is recurring / duplicated / missed / empty / shared across pets" before writing any method bodies — rather than discovering them mid-implementation.
 
 ---
 
@@ -141,13 +145,22 @@ All of these were caught by treating the class skeleton as a design review step 
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+`Scheduler` considers four constraints, in this order of precedence:
+
+1. **Completion status.** `build_daily_plan`/`build_daily_plan_for_owner` drop any occurrence already marked complete for that date before anything else runs. A finished task has no scheduling relevance, so it's filtered first rather than just sorted last.
+2. **Priority.** `HIGH`/`MEDIUM`/`LOW` is the primary sort key. This is the constraint an owner actually cares about day-to-day — "what's most important to not miss" — so it dominates ordering.
+3. **Title (alphabetical), as a deterministic tie-break.** When two tasks share a priority, something has to break the tie consistently so the plan doesn't reorder itself between runs. Alphabetical was picked as the simplest deterministic rule available now; it's explicitly called out as an "initial" choice in the design changes because a more meaningful tie-break (e.g. earliest `scheduled_time`) is a likely future refinement.
+4. **Time budget (optional).** If `time_budget_minutes` is supplied, it's applied last, after the list is already ordered — occurrences are accepted in priority order until the running total would exceed the budget, then the remaining (lower-priority) tail is dropped.
+
+Conflict detection (`detect_conflicts`) is a separate, parallel constraint rather than baked into the ordering: it doesn't remove or reorder anything, it just reports overlapping pairs for the caller to surface. Priority and completion status change *what's in the plan*; conflicts are informational on top of the plan.
+
+I ordered them this way because completion status is a hard filter (no ambiguity — a done task is done), priority is the one constraint with real, owner-defined meaning, and the tie-break/budget rules only need to be "reasonable and consistent," not "optimal" — see the tradeoff below.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The time-budget cutoff is a **greedy truncation, not a knapsack optimization**. Once the running total would exceed `time_budget_minutes`, `_finalize_plan` stops adding occurrences entirely (`break`), even if a later, shorter, lower-priority task would still fit in the remaining time. A true optimizer could pack more tasks into the same budget by skipping over ones that don't fit instead of stopping outright.
+
+This tradeoff is reasonable here because the ordering is priority-first: by the time the budget is exhausted, everything already included is higher-priority than everything left out, and the alternative (skip-and-continue) could let a trivial low-priority task jump ahead of a skipped medium-priority one just because it happened to be smaller. For a personal pet-care planner, "the owner's most important tasks fit, in order, and the rest come with an explicit, honest cutoff" is more predictable and easier to reason about than a bin-packing result that quietly swaps in whatever combination maximizes task count.
 
 ---
 

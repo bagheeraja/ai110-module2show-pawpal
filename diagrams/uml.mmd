@@ -38,6 +38,7 @@ classDiagram
 
     class TaskOccurrence {
         +Task task
+        +Pet pet
         +date occurrence_date
         +datetime start_time
         +datetime end_time
@@ -69,8 +70,9 @@ classDiagram
 
     class Scheduler {
         +build_daily_plan(pet, date, time_budget_minutes) list~TaskOccurrence~
+        +build_daily_plan_for_owner(owner, date, time_budget_minutes) list~TaskOccurrence~
         +detect_conflicts(occurrences) list~tuple~
-        +expand_recurring(task, date) TaskOccurrence
+        +expand_recurring(task, pet, date) TaskOccurrence
         +get_missed_tasks(pet, as_of) list~TaskOccurrence~
     }
 
@@ -80,5 +82,7 @@ classDiagram
     Task --> Priority
     Task --> Recurrence
     TaskOccurrence --> Task : instance of
+    TaskOccurrence --> Pet : instance of
     Scheduler ..> Pet : reads tasks from
+    Scheduler ..> Owner : aggregates pets from
     Scheduler ..> TaskOccurrence : produces/orders/checks
