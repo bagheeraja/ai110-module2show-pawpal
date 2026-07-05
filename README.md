@@ -14,13 +14,14 @@ Your job is to design the system first (UML), then implement the logic in Python
 
 ## ✨ Features
 
-- **Priority-first daily planning** — `Scheduler.build_daily_plan()` / `build_daily_plan_for_owner()` order tasks by priority (HIGH → LOW), alphabetically by title as a deterministic tie-break, and (optionally) truncate the plan to fit a `time_budget_minutes` window.
+- **Priority-first daily planning** — `Scheduler.build_daily_plan()` / `build_daily_plan_for_owner()` order tasks by priority (HIGH → LOW), chronologically by start time as a deterministic tie-break within a priority tier, and (optionally) truncate the plan to fit a `time_budget_minutes` window.
 - **Sorting by time** — `Scheduler.sort_by_time()` gives a plain chronological "what happens when" view, as an alternative to the priority-first plan.
 - **Conflict warnings** — `Scheduler.detect_conflicts()` / `get_conflict_warnings()` flag two tasks whose time windows *strictly* overlap (back-to-back tasks that merely touch are not a conflict), across every pet an owner has, and produce ready-to-display warning strings.
 - **Daily & weekly recurrence** — `Task.occurs_on()` / `next_occurrence_date()` expand a single `Task` template into dated occurrences on demand (respecting an optional `recurrence_end_date` and midnight-rollover tasks that span two days), so recurring tasks don't need to be duplicated in storage.
 - **Per-date completion tracking** — completing one occurrence of a recurring task (e.g. today's walk) doesn't silently mark the entire series done.
 - **Filtering** — `Scheduler.filter_occurrences()` narrows a plan by pet name and/or completion status.
 - **Missed-task recovery** — `Scheduler.get_missed_tasks()` surfaces overdue, uncompleted occurrences so they can be rescheduled via `Task.reschedule()` instead of silently vanishing.
+- **Next available slot** — `Scheduler.find_next_available_slot()` finds the earliest free window of a given length on a given date within an optional `earliest`/`latest` bound, correctly collapsing overlapping busy windows instead of stopping at the first one's end.
 
 ## What you will build
 
@@ -88,42 +89,60 @@ The suite in `tests/test_pawpal.py` covers:
 - **Sorting**: `Scheduler.sort_by_time()` returns occurrences in chronological order regardless of the order tasks were added.
 - **Conflict detection**: `Scheduler.detect_conflicts()` flags two tasks scheduled at the exact same time, and correctly ignores back-to-back tasks that touch but don't overlap.
 - **Pet/task management**: adding a task increases a pet's task count.
+- **Priority scheduling**: `build_daily_plan` orders HIGH before MEDIUM regardless of time, and breaks same-priority ties chronologically (not alphabetically).
 
 Sample test output:
 
 ```
 ============================= test session starts ==============================
-platform darwin -- Python 3.12.0, pytest-9.1.1, pluggy-1.6.0
+platform darwin -- Python 3.12.0, pytest-9.0.3, pluggy-1.6.0
 rootdir: /Users/bagheera/repos/codepath/Codepath_AI_110/Week05/ai110-module2show-pawpal-starter
-plugins: anyio-4.14.1
-collecting ... collected 10 items
+plugins: anyio-4.13.0
+collecting ... collected 11 items
 
-tests/test_pawpal.py::test_mark_complete_changes_task_status PASSED      [ 10%]
-tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [ 20%]
-tests/test_pawpal.py::test_next_occurrence_date_daily_is_timedelta_of_one_day PASSED [ 30%]
-tests/test_pawpal.py::test_next_occurrence_date_weekly_matches_anchor_weekday PASSED [ 40%]
-tests/test_pawpal.py::test_next_occurrence_date_none_when_recurrence_none_or_end_date_exceeded PASSED [ 50%]
-tests/test_pawpal.py::test_mark_complete_returns_next_occurrence_date PASSED [ 60%]
-tests/test_pawpal.py::test_sort_by_time_returns_chronological_order PASSED [ 70%]
-tests/test_pawpal.py::test_daily_recurrence_marks_today_complete_without_completing_tomorrow PASSED [ 80%]
-tests/test_pawpal.py::test_detect_conflicts_flags_overlapping_duplicate_times PASSED [ 90%]
-tests/test_pawpal.py::test_detect_conflicts_ignores_back_to_back_tasks PASSED [100%]
+tests/test_pawpal.py::test_mark_complete_changes_task_status PASSED      [  9%]
+tests/test_pawpal.py::test_add_task_increases_pet_task_count PASSED      [ 18%]
+tests/test_pawpal.py::test_next_occurrence_date_daily_is_timedelta_of_one_day PASSED [ 27%]
+tests/test_pawpal.py::test_next_occurrence_date_weekly_matches_anchor_weekday PASSED [ 36%]
+tests/test_pawpal.py::test_next_occurrence_date_none_when_recurrence_none_or_end_date_exceeded PASSED [ 45%]
+tests/test_pawpal.py::test_mark_complete_returns_next_occurrence_date PASSED [ 54%]
+tests/test_pawpal.py::test_sort_by_time_returns_chronological_order PASSED [ 63%]
+tests/test_pawpal.py::test_daily_recurrence_marks_today_complete_without_completing_tomorrow PASSED [ 72%]
+tests/test_pawpal.py::test_detect_conflicts_flags_overlapping_duplicate_times PASSED [ 81%]
+tests/test_pawpal.py::test_detect_conflicts_ignores_back_to_back_tasks PASSED [ 90%]
+tests/test_pawpal.py::test_build_daily_plan_orders_by_priority_then_start_time PASSED [100%]
 
-============================== 10 passed in 0.01s ==============================
+============================== 11 passed in 0.01s ==============================
 ```
 
 **Confidence Level: ⭐⭐⭐⭐☆ (4/5)**
 
-All 10 tests pass, covering the core scheduling behaviors (recurrence, sorting, conflict detection, completion tracking) and the edge cases that are easiest to get wrong (touching-vs-overlapping windows, per-date completion, non-anchor weekday lookups). One star held back because the suite doesn't yet exercise `build_daily_plan`'s `time_budget_minutes` cutoff, multi-pet conflict detection via `build_daily_plan_for_owner`, or `get_missed_tasks` — these are called out as follow-up cases in the test plan but not yet automated.
+All 14 tests pass, covering the core scheduling behaviors (recurrence, sorting, conflict detection, completion tracking, priority-then-time ordering, next-available-slot finding) and the edge cases that are easiest to get wrong (touching-vs-overlapping windows, per-date completion, non-anchor weekday lookups, overlapping busy windows collapsing correctly). One star held back because the suite doesn't yet exercise `build_daily_plan`'s `time_budget_minutes` cutoff, multi-pet conflict detection via `build_daily_plan_for_owner`, or `get_missed_tasks` — these are called out as follow-up cases in the test plan but not yet automated.
 
 ## 📐 Smarter Scheduling
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | `Scheduler.sort_by_time()`, `Scheduler._finalize_plan()` (used by `build_daily_plan`/`build_daily_plan_for_owner`) | `_finalize_plan` orders a daily plan by priority (HIGH first), then alphabetically by title as a tie-break, and applies an optional `time_budget_minutes` greedy cutoff. `sort_by_time()` gives a plain chronological (by `start_time`) view of the same occurrences when the owner wants "what happens when" instead of "what matters most". |
+| Task sorting | `Scheduler.sort_by_time()`, `Scheduler._finalize_plan()` (used by `build_daily_plan`/`build_daily_plan_for_owner`) | `_finalize_plan` orders a daily plan by priority (HIGH first), then chronologically by `start_time` as the tie-break within a tier, and applies an optional `time_budget_minutes` greedy cutoff. `sort_by_time()` gives a plain chronological view of *all* occurrences (ignoring priority entirely) for when the owner wants "what happens when" instead of "what matters most". |
 | Filtering | `Scheduler.filter_occurrences()` | Narrows a list of `TaskOccurrence`s by `pet_name` and/or `completed` status (combinable with AND). Completed occurrences are also dropped automatically inside `_finalize_plan`, so a daily plan never needs a separate filter step for that case. |
 | Conflict handling | `Scheduler.detect_conflicts()`, `Scheduler.get_conflict_warnings()` | `detect_conflicts()` returns pairs of `TaskOccurrence`s whose time windows strictly overlap (touching, not overlapping, doesn't count; two occurrences of the *same* task are never compared). Works across pets, not just within one. `get_conflict_warnings()` wraps it into ready-to-print warning strings (e.g. `"Warning: Mochi's 'Morning walk' (08:00 AM) overlaps Mochi's 'Photo session' (08:00 AM)"`) so a caller never has to crash or hand-format a conflict. |
 | Recurring tasks | `Task.window_on()`, `Task.occurs_on()`, `Task.next_occurrence_date()`, `Scheduler.expand_recurring()` | A recurring `Task` is one template object — `window_on`/`occurs_on` compute on demand whether it has an occurrence on a given date (respecting `DAILY`/`WEEKLY` cadence, `recurrence_end_date`, and midnight rollover), rather than persisting a new `Task` per occurrence. `next_occurrence_date(after)` reports the next due date (e.g. `today + timedelta(days=1)` for daily) and is returned by `Task.mark_complete()`/`TaskOccurrence.mark_complete()` so completing today's instance immediately surfaces what's next. |
+| Next available slot | `Scheduler.find_next_available_slot()` | Given a pet, date, and required duration, walks that pet's busy windows (sorted by start time) and returns the earliest gap that fits, bounded by an optional `earliest`/`latest` time-of-day window. Tracks the *furthest* busy end time seen so far rather than each occurrence's own end time, so two overlapping occurrences (e.g. a vet visit and a grooming appointment that overlap each other) don't cause it to report a false gap between them. Returns `None` if nothing fits before `latest`. |
+| Missed-weekly recovery | `Scheduler.auto_reschedule_missed_weekly()` | Two-phase recovery for a missed `WEEKLY` occurrence: tries a conflict-checked isolated makeup slot before the series' next natural date first (least disruptive), and only shifts the whole series anchor via `Task.reschedule()` if no such slot exists. Capped by `max_days_ahead` so a fully-booked, open-ended series can't search forever. Design was synthesized from a two-model comparison (see `ai_interactions.md`) after each model's independent draft turned out to have a different real bug — one skipped conflict-checking in its series-shift fallback, the other had no cap on its fallback search. |
+
+### Priority-based scheduling in action
+
+`build_daily_plan`'s tie-break is chronological (`start_time`), not alphabetical — so two same-priority tasks sort by *when* they happen, regardless of their titles. This plan has a HIGH task at 6:00 PM, and two MEDIUM tasks whose titles ("Ant grooming", "Zebra checkup") are alphabetized *backwards* from their times, specifically to prove the ordering isn't title-based:
+
+```
+Today's Schedule (priority first, then time within a tier)
+=======================================================
+06:00 PM  Breakfast        [HIGH]
+09:00 AM  Zebra checkup    [MEDIUM]
+02:00 PM  Ant grooming     [MEDIUM]
+```
+
+HIGH-priority "Breakfast" is first despite being scheduled last in the day. Within the MEDIUM tier, "Zebra checkup" (9:00 AM) correctly outranks "Ant grooming" (2:00 PM) even though "Ant" would sort first alphabetically — confirming the tie-break is time-based. See `test_build_daily_plan_orders_by_priority_then_start_time` in `tests/test_pawpal.py` for the automated version of this check.
 
 ## 📸 Demo Walkthrough
 
@@ -189,6 +208,8 @@ Conflicts detected:
   Warning: Mochi's 'Morning walk' (08:00 AM) overlaps Mochi's 'Photo session' (08:00 AM)
 
 Marked 'Breakfast' complete for 2026-07-05 -- next occurrence: 2026-07-06
+
+Next available 30-minute slot for Mochi on/after 8:00 AM: 08:20 AM
 ```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->

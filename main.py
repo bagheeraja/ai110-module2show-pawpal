@@ -110,6 +110,12 @@ def main() -> None:
         f"next occurrence: {next_date.isoformat() if next_date else 'none'}"
     )
 
+    slot = scheduler.find_next_available_slot(mochi, TODAY, 30, earliest=time(8, 0), latest=time(21, 0))
+    print(
+        f"\nNext available 30-minute slot for {mochi.name} on/after 8:00 AM: "
+        f"{slot.strftime('%I:%M %p') if slot else 'none'}"
+    )
+
 
 if __name__ == "__main__":
     main()

@@ -11,7 +11,7 @@ from __future__ import annotations
 import itertools
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum, auto
 
 
@@ -288,8 +288,8 @@ class Scheduler:
     ) -> list[TaskOccurrence]:
         """Not-yet-completed occurrences for target_date, for a single pet.
 
-        Ordering: by Priority (HIGH first), and alphabetically by title as
-        the initial tie-break within a priority tier. Already-completed
+        Ordering: by Priority (HIGH first), then chronologically by start
+        time as the tie-break within a priority tier. Already-completed
         occurrences (``occurrence.completed``) are excluded -- a finished
         walk shouldn't clutter the plan. If ``time_budget_minutes`` is
         given and the sorted occurrences would exceed it, lower-priority
@@ -311,14 +311,14 @@ class Scheduler:
         occurrences: list[TaskOccurrence],
         time_budget_minutes: int | None,
     ) -> list[TaskOccurrence]:
-        """Shared not-completed filter + priority/title ordering + budget cutoff.
+        """Shared not-completed filter + priority/time ordering + budget cutoff.
 
         Used by both build_daily_plan and build_daily_plan_for_owner so the
         two apply identical rules regardless of whether `occurrences` is
         scoped to one pet or merged across an owner's pets.
         """
         pending = [occurrence for occurrence in occurrences if not occurrence.completed]
-        pending.sort(key=lambda occurrence: (-occurrence.task.priority.value, occurrence.task.title))
+        pending.sort(key=lambda occurrence: (-occurrence.task.priority.value, occurrence.start_time))
 
         if time_budget_minutes is None:
             return pending
@@ -343,7 +343,7 @@ class Scheduler:
         """Merged, ordered plan across every pet the owner has.
 
         Combines each pet's get_tasks_for_date(target_date) into one list
-        *before* applying the not-completed filter, priority/title
+        *before* applying the not-completed filter, priority/time
         ordering, and time budget -- the same rules build_daily_plan uses,
         just applied owner-wide instead of per-pet. Each TaskOccurrence
         already carries its own `pet`, so the merged list stays groupable
@@ -488,3 +488,118 @@ class Scheduler:
         while current < as_of:
             yield current
             current += timedelta(days=1)
+
+    def find_next_available_slot(
+        self,
+        pet: Pet,
+        target_date: date,
+        duration_minutes: int,
+        *,
+        earliest: time = time(0, 0),
+        latest: time = time(23, 59),
+    ) -> datetime | None:
+        """The earliest ``duration_minutes``-long free window on ``target_date``, or None.
+
+        Only searches within [``earliest``, ``latest``] on ``target_date``
+        (e.g. an owner's "awake hours") -- it does not roll over to the next
+        day. Busy time comes from ``pet.get_tasks_for_date``, so it reflects
+        the same recurrence/rollover rules as the rest of the day's plan.
+        Existing occurrences don't need to be pre-merged even if they
+        overlap each other: sorting by start time and tracking the furthest
+        end time seen so far (rather than each occurrence's own end time)
+        naturally collapses overlapping busy windows into one. A slot that
+        exactly fits between two occurrences (no gap left over) counts as
+        available, consistent with Task.conflicts_with treating touching
+        windows as non-overlapping.
+        """
+        window_start = datetime.combine(target_date, earliest)
+        window_end = datetime.combine(target_date, latest)
+        needed = timedelta(minutes=duration_minutes)
+
+        busy_windows = sorted(
+            (occurrence.start_time, occurrence.end_time)
+            for occurrence in pet.get_tasks_for_date(target_date)
+        )
+
+        cursor = window_start
+        for busy_start, busy_end in busy_windows:
+            if busy_start >= cursor + needed:
+                return cursor
+            cursor = max(cursor, busy_end)
+
+        return cursor if window_end - cursor >= needed else None
+
+    def auto_reschedule_missed_weekly(
+        self,
+        task: Task,
+        pet: Pet,
+        missed_date: date,
+        *,
+        max_days_ahead: int = 90,
+    ) -> date | None:
+        """Recover a single missed WEEKLY occurrence, or shift the series if that's not possible.
+
+        Design synthesized from two independently-drafted implementations
+        (see ai_interactions.md's Prompt Comparison for both originals and
+        what each got wrong):
+
+        Phase 1 (preferred): search day-by-day starting the day *after*
+        ``missed_date`` -- never on ``missed_date`` itself, since a missed
+        occurrence is by definition already in the past (see
+        get_missed_tasks) -- for a conflict-free slot at the task's usual
+        time-of-day or later, up to (but not including) the series' next
+        regularly-scheduled occurrence. This keeps every future week's slot
+        untouched; only the one missed instance moves. The returned date is
+        a *proposal* for the caller to act on (e.g. log a one-off makeup
+        Task) -- Task has no concept of a single-occurrence exception (per
+        Task.reschedule's own docstring), so this method can't persist a
+        one-off change to the series itself.
+
+        Phase 2 (fallback): if Phase 1 finds nothing before the next
+        natural occurrence, shift the whole series anchor via
+        task.reschedule() to the first conflict-checked slot found --
+        capped at ``max_days_ahead`` so a fully-booked pet with no
+        recurrence_end_date can't turn this into an unbounded search.
+
+        Both phases respect recurrence_end_date and return None if nothing
+        fits before it (or within max_days_ahead, if no end date is set).
+        """
+        if task.recurrence != Recurrence.WEEKLY:
+            raise ValueError("auto_reschedule_missed_weekly requires a WEEKLY task")
+
+        search_start = missed_date + timedelta(days=1)
+        fallback_limit = search_start + timedelta(days=max_days_ahead)
+        next_due = task.next_occurrence_date(missed_date)
+
+        phase_one_bounds = [
+            bound
+            for bound in (
+                (next_due - timedelta(days=1)) if next_due is not None else None,
+                task.recurrence_end_date,
+                fallback_limit,
+            )
+            if bound is not None
+        ]
+        phase_one_limit = min(phase_one_bounds)
+
+        current = search_start
+        while current <= phase_one_limit:
+            slot = self.find_next_available_slot(
+                pet, current, task.duration_minutes, earliest=task.scheduled_time.time()
+            )
+            if slot is not None:
+                return slot.date()
+            current += timedelta(days=1)
+
+        phase_two_limit = min(
+            bound for bound in (task.recurrence_end_date, fallback_limit) if bound is not None
+        )
+        current = search_start
+        while current <= phase_two_limit:
+            slot = self.find_next_available_slot(pet, current, task.duration_minutes)
+            if slot is not None:
+                task.reschedule(slot)
+                return slot.date()
+            current += timedelta(days=1)
+
+        return None
