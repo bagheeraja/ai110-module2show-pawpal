@@ -170,13 +170,13 @@ This tradeoff is reasonable here because the ordering is priority-first: by the 
 
 **a. How you used AI**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+An AI coding assistant (Claude) was used across the whole lifecycle: brainstorming the initial UML and building-block breakdown, reviewing the class skeleton for edge cases before any logic existed, implementing the scheduling logic and its tests, drafting two of the stretch challenges (a "next available slot" finder and a missed-weekly-task auto-reschedule algorithm, the latter compared against a second model), and wiring the backend into the Streamlit UI. The most useful prompts weren't "implement X" requests — they were open-ended review/audit questions asked *after* a chunk of work looked done: "are there any edge cases that need to be considered at this stage?", "are there any opportunities for simplification or optimization?", and especially "are there any other features in the backend that are not exposed in the UI yet?" Each of those surfaced real gaps that a narrower implementation request never would have.
 
 **b. Judgment and verification**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+The clearest example is that last question above. After Challenge 1 (`find_next_available_slot`) and Challenge 5 (`auto_reschedule_missed_weekly`) were implemented, the AI had done everything the instructions literally asked for: the methods existed in `pawpal_system.py`, with passing tests, README documentation, and an `ai_interactions.md` write-up. By that narrow measure, the work was complete. But the AI never made the connection that a fully-implemented, fully-tested backend method is still useless to an actual user if nothing in `app.py` ever calls it — and it didn't flag that gap on its own initiative at any point, even while writing README sections describing the feature as if it were part of the product. The same thing had already happened earlier with `Pet.remove_task` (task deletion): implemented and tested in the backend, documented nowhere as missing from the UI, until directly asked.
+
+I caught this by not treating "tests pass and README is updated" as equivalent to "the feature works end-to-end" — instead asking directly whether backend methods existed with no UI entry point. Verifying the answer was mechanical (grep every public method name against `app.py` to see which ones were never called), which is exactly the kind of check that should have happened automatically as part of "is this feature actually done," rather than needing to be requested separately. The pattern worth remembering: an AI assistant will faithfully implement the literal scope of what's asked, but won't necessarily notice that "implemented in the logic layer" and "usable by an owner clicking through the app" are two different bars — that seam has to be checked for explicitly, not assumed to be covered by the same pass that wrote the backend code.
 
 ---
 
